@@ -2,67 +2,79 @@ import express from "express";
 import mongoose from "mongoose";
 import multer from "multer";
 import path from "path";
+import dotenv from "dotenv";
+import { v2 as cloudinary } from "cloudinary";
+
+dotenv.config(); // load env vars
 
 const app = express();
 
-import { v2 as cloudinary } from "cloudinary";
+// basic middleware
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 
+// cloudinary config
 cloudinary.config({
-  cloud_name: "dfglng8d2",
-  api_key: "264715678959216",
-  api_secret: "LKbLwD9P8gsrz9gB5Vd7rJYqgqk",
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+  api_key: process.env.CLOUDINARY_API_KEY,
+  api_secret: process.env.CLOUDINARY_API_SECRET,
 });
 
-app.use(express.urlencoded({ extended: true }));
+// mongoDB connect
 mongoose
-  .connect(
-    "mongodb+srv://sonalidutta45bonu:sonalinodejs@cluster0.litzxn8.mongodb.net/",
-    { dbName: "NodeJs_Mastery_Course" }
-  )
-  .then(() => console.log("MongoDb Connected..!"))
-  .catch((err) => console.log(err));
+  .connect(process.env.MONGO_URI, { dbName: "NodeJs_Mastery_Course" })
+  .then(() => console.log("✅ MongoDB connected"))
+  .catch((err) => console.error("❌ Mongo error:", err));
 
-// rendering ejs files
+// view engine (if you’re rendering ejs files)
+app.set("view engine", "ejs");
+
+// default route
 app.get("/", (req, res) => {
   res.render("index.ejs", { url: null });
 });
 
+// multer setup
 const storage = multer.diskStorage({
-//   destination: "./publuic/uploads",
-  filename: function (req, file, cb) {
+  filename: (req, file, cb) => {
     const uniqueSuffix = Date.now() + path.extname(file.originalname);
     cb(null, file.fieldname + "-" + uniqueSuffix);
   },
 });
+const upload = multer({ storage });
 
-const upload = multer({ storage: storage });
-
+// mongoose model
 const imageSchema = new mongoose.Schema({
   filename: String,
   public_id: String,
-  imgurl: String,
+  imgUrl: String,
 });
-
 const File = mongoose.model("cloudinary", imageSchema);
+
+// upload route
 app.post("/upload", upload.single("file"), async (req, res) => {
-  const file = req.file.path;
+  try {
+    if (!req.file) return res.status(400).send("No file uploaded");
 
-  const cloudinaryRes = await cloudinary.uploader.upload(file, {
-    folder: "NodeJS_Mastery_Course",
-  });
+    // upload to cloudinary
+    const cloudinaryRes = await cloudinary.uploader.upload(req.file.path, {
+      folder: "NodeJS_Mastery_Course",
+    });
 
-//   save to database
-const db = await File.create({
-    filename : file.originalname,
-    public_id: cloudinaryRes.public_id,
-    imgUrl: cloudinaryRes.secure_url,
+    // save in DB
+    await File.create({
+      filename: req.file.originalname,
+      public_id: cloudinaryRes.public_id,
+      imgUrl: cloudinaryRes.secure_url,
+    });
 
+    res.render("index.ejs", { url: cloudinaryRes.secure_url });
+  } catch (err) {
+    console.error("Upload error:", err);
+    res.status(500).send("Error uploading file");
+  }
 });
-  res.render("index.ejs", { url: cloudinaryRes.secure_url });
-});
 
-const port = 3000;
-
-app.listen(port, () =>
-  console.log(`My Server is currently running on ${port}`)
-);
+// dynamic port for render
+const port = process.env.PORT || 3000;
+app.listen(port, () => console.log(`🚀 Server running on port ${port}`));
